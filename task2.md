@@ -38,7 +38,7 @@
    ```
    
    *Результат:*
-   [Вставьте результат выполнения]
+   ![alt text](image-1.png)
 
 4. Выполните запрос для поиска книги с id = 18:
    ```sql
@@ -47,10 +47,15 @@
    ```
    
    *План выполнения:*
-   [Вставьте план выполнения]
-   
-   *Объясните результат:*
-   [Ваше объяснение]
+   ```sql
+   Seq Scan on t_books_part_1 t_books_part  (cost=0.00..2065.98 rows=2 width=32) (actual time=0.025..15.65 rows=2 loops=1)
+      Filter: (book_id = 18)
+      Rows Removed by Filter: 99996
+    Planning Time: 0.228 ms
+    Execution Time: 14.881 ms
+   ```
+   *Объясните результат:*   
+   есть декларации диапазонов при создании партиций => запрос при поиске book_id = 18 попадет в диапазон значений
 
 5. Выполните поиск по названию книги:
    ```sql
@@ -60,10 +65,26 @@
    ```
    
    *План выполнения:*
-   [Вставьте план выполнения]
    
+   ```sql
+    Gather  (cost=1000.00..5655.50 rows=6 width=33) (actual time=11.921..23.459 rows=2 loops=1)
+      Workers Planned: 2
+      Workers Launched: 2
+      ->  Parallel Append  (cost=0.00..4654.90 rows=3 width=33) (actual time=10.423..13.283 rows=1 loops=3)
+            ->  Parallel Seq Scan on t_books_part_2  (cost=0.00..1552.29 rows=1 width=33) (actual time=3.839..3.839 rows=0 loops=3)
+                  Filter: ((title)::text = 'Expert PostgreSQL Architecture'::text)
+                  Rows Removed by Filter: 33333
+            ->  Parallel Seq Scan on t_books_part_3  (cost=0.00..1551.31 rows=1 width=34) (actual time=5.839..5.839 rows=0 loops=2)
+                  Filter: ((title)::text = 'Expert PostgreSQL Architecture'::text)
+                  Rows Removed by Filter: 50001
+            ->  Parallel Seq Scan on t_books_part_1  (cost=0.00..1551.28 rows=1 width=32) (actual time=10.839..16.839 rows=2 loops=1)
+                  Filter: ((title)::text = 'Expert PostgreSQL Architecture'::text)
+                  Rows Removed by Filter: 99996
+   Planning Time: 0.348 ms
+   Execution Time: 31.00 ms
+   ```
    *Объясните результат:*
-   [Ваше объяснение]
+   чекаем все 3 партиции. ет индекса на title-> seq scan.  так как данные не зависят мы распараллелим 
 
 6. Создайте партиционированный индекс:
    ```sql
@@ -71,7 +92,10 @@
    ```
    
    *Результат:*
-   [Вставьте результат выполнения]
+   ```sql
+   CREATE INDEX ON t_books_part(title)
+   completed in 1 s 240 ms
+   ```
 
 7. Повторите запрос из шага 5:
    ```sql
@@ -81,10 +105,23 @@
    ```
    
    *План выполнения:*
-   [Вставьте план выполнения]
+   ```sql
+    Append  (cost=4.43..35.09 rows=6 width=33) (actual time=0.116..0.310 rows=2 loops=1)
+      ->  Bitmap Heap Scan on t_books_part_1  (cost=4.43..12.16 rows=2 width=32) (actual time=0.114..0.121 rows=2 loops=1)
+            Recheck Cond: ((title)::text = 'Expert PostgreSQL Architecture'::text)
+            Heap Blocks: exact=2
+            ->  Bitmap Index Scan on t_books_part_1_title_idx  (cost=0.00..4.43 rows=2 width=0) (actual time=0.103..0.103 rows=2 loops=1)
+                  Index Cond: ((title)::text = 'Expert PostgreSQL Architecture'::text)
+      ->  Index Scan using t_books_part_2_title_idx on t_books_part_2  (cost=0.42..11.46 rows=2 width=33) (actual time=0.108..0.109 rows=0 loops=1)
+            Index Cond: ((title)::text = 'Expert PostgreSQL Architecture'::text)
+      ->  Index Scan using t_books_part_3_title_idx on t_books_part_3  (cost=0.42..11.45 rows=2 width=34) (actual time=0.074..0.074 rows=0 loops=1)
+            Index Cond: ((title)::text = 'Expert PostgreSQL Architecture'::text)
+    Planning Time: 0.913 ms
+    Execution Time: 0.455 ms
+   ```
    
    *Объясните результат:*
-   [Ваше объяснение]
+    используем индексы после создания для каждой партиции
 
 8. Удалите созданный индекс:
    ```sql
@@ -92,7 +129,10 @@
    ```
    
    *Результат:*
-   [Вставьте результат выполнения]
+   ```sql
+    > DROP INDEX t_books_part_title_idx
+    completed in 6 ms
+    ```
 
 9. Создайте индекс для каждой партиции:
    ```sql
@@ -100,9 +140,6 @@
    CREATE INDEX ON t_books_part_2(title);
    CREATE INDEX ON t_books_part_3(title);
    ```
-   
-   *Результат:*
-   [Вставьте результат выполнения]
 
 10. Повторите запрос из шага 5:
     ```sql
@@ -111,11 +148,23 @@
     WHERE title = 'Expert PostgreSQL Architecture';
     ```
     
-    *План выполнения:*
-    [Вставьте план выполнения]
-    
-    *Объясните результат:*
-    [Ваше объяснение]
+   *Результат:*
+   ```sql
+    Append  (cost=4.43..35.09 rows=6 width=33) (actual time=0.052..0.112 rows=2 loops=1)
+      ->  Bitmap Heap Scan on t_books_part_1  (cost=4.43..12.16 rows=2 width=32) (actual time=0.051..0.056 rows=2 loops=1)
+            Recheck Cond: ((title)::text = 'Expert PostgreSQL Architecture'::text)
+            Heap Blocks: exact=2
+            ->  Bitmap Index Scan on t_books_part_1_title_idx  (cost=0.00..4.43 rows=2 width=0) (actual time=0.042..0.042 rows=2 loops=1)
+                  Index Cond: ((title)::text = 'Expert PostgreSQL Architecture'::text)
+      ->      Index Scan using t_books_part_2_title_idx on t_books_part_2  (cost=0.42..11.46 rows=2 width=33) (actual time=0.028..0.028 rows=0 loops=1)
+                Index Cond: ((title)::text = 'Expert PostgreSQL Architecture'::text)
+      ->  Index Scan using t_books_part_3_title_idx on t_books_part_3  (cost=0.42..11.45 rows=2 width=34) (actual time=0.025..0.025 rows=0 loops=1)
+                Index Cond: ((title)::text = 'Expert PostgreSQL Architecture'::text)
+    Planning Time: 0.741 ms
+    Execution Time: 0.253 ms
+   ```
+
+   ищем только в затронутых партициях + используем индексы
 
 11. Удалите созданные индексы:
     ```sql
@@ -123,9 +172,6 @@
     DROP INDEX t_books_part_2_title_idx;
     DROP INDEX t_books_part_3_title_idx;
     ```
-    
-    *Результат:*
-    [Вставьте результат выполнения]
 
 12. Создайте обычный индекс по book_id:
     ```sql
@@ -133,7 +179,10 @@
     ```
     
     *Результат:*
-    [Вставьте результат выполнения]
+    ```sql
+    CREATE INDEX t_books_part_idx ON t_books_part(book_id)
+    completed in 142 ms
+    ```    
 
 13. Выполните поиск по book_id:
     ```sql
@@ -142,10 +191,15 @@
     ```
     
     *План выполнения:*
-    [Вставьте план выполнения]
+    ```sql
+    Index Scan using t_books_part_1_book_id_idx on t_books_part_1 t_books_part  (cost=0.29..11.32 rows=2 width=32) (actual time=0.039..0.044 rows=2 loops=1)
+      Index Cond: (book_id = 11011)
+    Planning Time: 0.555 ms
+    Execution Time: 0.041 ms
+    ```
     
     *Объясните результат:*
-    [Ваше объяснение]
+    аналогично. нет повторения + индексы => index scan
 
 14. Создайте индекс по полю is_active:
     ```sql
@@ -153,8 +207,10 @@
     ```
     
     *Результат:*
-    [Вставьте результат выполнения]
-
+    ```sql
+    CREATE INDEX t_books_active_idx ON t_books(is_active)
+    completed in 52 ms
+    ```
 15. Выполните поиск активных книг с отключенным последовательным сканированием:
     ```sql
     SET enable_seqscan = off;
@@ -164,10 +220,18 @@
     ```
     
     *План выполнения:*
-    [Вставьте план выполнения]
+    ```sql
+     Bitmap Heap Scan on t_books  (cost=840.03..2812.08 rows=74805 width=33) (actual time=1.949..8.311 rows=75089 loops=1)
+      Recheck Cond: is_active
+      Heap Blocks: exact=1224
+      ->  Bitmap Index Scan on t_books_active_idx  (cost=0.00..821.33 rows=74805 width=0) (actual time=1.806..1.807 rows=75089 loops=1)
+            Index Cond: (is_active = true)
+    Planning Time: 0.241 ms
+    Execution Time: 11.413 ms
+    ```
     
     *Объясните результат:*
-    [Ваше объяснение]
+    видимо теперь есть повторения + построены индексы
 
 16. Создайте составной индекс:
     ```sql
@@ -175,8 +239,10 @@
     ```
     
     *Результат:*
-    [Вставьте результат выполнения]
-
+    ```sql
+    > CREATE INDEX t_books_author_title_index ON t_books(author, title)
+    completed in 239 ms
+    ```
 17. Найдите максимальное название для каждого автора:
     ```sql
     EXPLAIN ANALYZE
@@ -186,10 +252,17 @@
     ```
     
     *План выполнения:*
-    [Вставьте план выполнения]
+    ```sql
+     HashAggregate  (cost=3474.00..3484.00 rows=1000 width=42) (actual time=50.344..50.434 rows=1003 loops=1)
+      Group Key: author
+      Batches: 1  Memory Usage: 193kB
+      ->  Seq Scan on t_books  (cost=0.00..2724.00 rows=150000 width=21) (actual time=0.004..7.221 rows=150000 loops=1)
+    Planning Time: 0.214 ms
+    Execution Time: 42.375 ms
+    ```
     
     *Объясните результат:*
-    [Ваше объяснение]
+    нам нужны все данные => придется seq scan
 
 18. Выберите первых 10 авторов:
     ```sql
@@ -201,10 +274,18 @@
     ```
     
     *План выполнения:*
-    [Вставьте план выполнения]
+    ```sql
+     Limit  (cost=0.42..56.63 rows=10 width=10) (actual time=0.084..0.314 rows=10 loops=1)
+      ->  Result  (cost=0.42..5621.42 rows=1000 width=10) (actual time=0.083..0.312 rows=10 loops=1)
+            ->  Unique  (cost=0.42..5621.42 rows=1000 width=10) (actual time=0.082..0.310 rows=10 loops=1)
+                  ->  Index Only Scan using t_books_author_title_index on t_books  (cost=0.42..5246.42 rows=150000 width=10) (actual time=0.081..0.233 rows=1373 loops=1)
+                        Heap Fetches: 0
+    Planning Time: 0.102 ms
+    Execution Time: 0.413 ms
+    ```
     
     *Объясните результат:*
-    [Ваше объяснение]
+    построен индекс, берем только уникальные => можем запустить index scan
 
 19. Выполните поиск и сортировку:
     ```sql
@@ -216,10 +297,19 @@
     ```
     
     *План выполнения:*
-    [Вставьте план выполнения]
+    ```sql
+    Sort  (cost=3099.29..3099.33 rows=15 width=21) (actual time=22.761..22.762 rows=1 loops=1)
+      Sort Key: author, title
+      Sort Method: quicksort  Memory: 25kB
+      ->  Seq Scan on t_books  (cost=0.00..3099.00 rows=15 width=21) (actual time=22.752..22.754 rows=1 loops=1)
+            Filter: ((author)::text ~~ 'T%'::text)
+            Rows Removed by Filter: 149999
+    Planning Time: 0.215 ms
+    Execution Time: 22.880 ms
+    ```
     
     *Объясните результат:*
-    [Ваше объяснение]
+    ilike => не можем использовать индекс => долго вычитываем все
 
 20. Добавьте новую книгу:
     ```sql
@@ -228,16 +318,11 @@
     COMMIT;
     ```
     
-    *Результат:*
-    [Вставьте результат выполнения]
 
 21. Создайте индекс по категории:
     ```sql
     CREATE INDEX t_books_cat_idx ON t_books(category);
     ```
-    
-    *Результат:*
-    [Вставьте результат выполнения]
 
 22. Найдите книги без категории:
     ```sql
@@ -246,12 +331,7 @@
     FROM t_books 
     WHERE category IS NULL;
     ```
-    
-    *План выполнения:*
-    [Вставьте план выполнения]
-    
-    *Объясните результат:*
-    [Ваше объяснение]
+
 
 23. Создайте частичные индексы:
     ```sql
@@ -259,8 +339,6 @@
     CREATE INDEX t_books_cat_null_idx ON t_books(category) WHERE category IS NULL;
     ```
     
-    *Результат:*
-    [Вставьте результат выполнения]
 
 24. Повторите запрос из шага 22:
     ```sql
@@ -271,11 +349,16 @@
     ```
     
     *План выполнения:*
-    [Вставьте план выполнения]
+    ```sql
+     Index Scan using t_books_cat_idx on t_books  (cost=0.29..8.16 rows=1 width=21) (actual time=0.075..0.078 rows=1 loops=1)
+      Index Cond: (category IS NULL)
+    Planning Time: 0.239 ms
+    Execution Time: 0.493 ms
+    ```
     
     *Объясните результат:*
-    [Ваше объяснение]
-
+    t_books_cat_idx - построен индекс на category и значения уникальны
+    
 25. Создайте частичный уникальный индекс:
     ```sql
     CREATE UNIQUE INDEX t_books_selective_unique_idx 
